@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+// ---------- ENUMS ----------
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum SportType {
+  FUTSAL
+  BADMINTON
+  TENNIS
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+// ---------- MODELS ----------
+
+model User {
+  id        String    @id @default(cuid())
+  name      String
+  email     String    @unique
+  password  String
+  phone     String?
+  role      Role      @default(USER)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  bookings  Booking[]
+}
+
+model Venue {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  address     String
+  city        String
+  phone       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  courts      Court[]
+
+  @@index([city])
+}
+
+model Court {
+  id           String    @id @default(cuid())
+  name         String
+  sportType    SportType
+  pricePerHour Decimal   @db.Decimal(10, 2)
+  description  String?
+  isActive     Boolean   @default(true)
+  venueId      String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  venue        Venue     @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  bookings     Booking[]
+
+  @@index([venueId])
+  @@index([sportType])
+}
+
+model Booking {
+  id         String        @id @default(cuid())
+  date       DateTime      @db.Date
+  startTime  DateTime      @db.Time()
+  endTime    DateTime      @db.Time()
+  status     BookingStatus @default(PENDING)
+  totalPrice Decimal       @db.Decimal(10, 2)
+  notes      String?
+  userId     String
+  courtId    String
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  court      Court         @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([courtId])
+  @@index([date])
+  @@unique([courtId, date, startTime])
+}

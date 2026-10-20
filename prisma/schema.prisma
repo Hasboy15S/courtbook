@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
 // ---------- ENUMS ----------
 
 enum Role {
@@ -16,13 +17,32 @@ enum SportType {
   FUTSAL
   BADMINTON
   TENNIS
+  BASKETBALL
+  GOLF
+  PADEL
+  MINI_SOCCER
+  VOLLEYBALL
+  TABLE_TENNIS
 }
 
 enum BookingStatus {
   PENDING
   CONFIRMED
-  CANCELLED
   COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  UNPAID
+  WAITING_VERIFICATION
+  PAID
+  REJECTED
+}
+
+enum DayType {
+  WEEKDAY
+  WEEKEND
 }
 
 // ---------- MODELS ----------
@@ -37,20 +57,28 @@ model User {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  bookings  Booking[]
+  bookings      Booking[]
+  reviews       Review[]
+  notifications Notification[]
 }
 
 model Venue {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  address     String
-  city        String
-  phone       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  address      String
+  city         String
+  phone        String?
+  photos       String[] @default([])
+  facilities   String[] @default([])
+  openTime     Int      @default(6)  // Hour in 24h format (0-23), UTC+7
+  closeTime    Int      @default(22) // Hour in 24h format (0-23), UTC+7
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  courts      Court[]
+  courts       Court[]
+  reviews      Review[]
 
   @@index([city])
 }
@@ -66,31 +94,132 @@ model Court {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  venue        Venue     @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  venue        Venue        @relation(fields: [venueId], references: [id], onDelete: Cascade)
   bookings     Booking[]
+  priceRules   PriceRule[]
+  blockedSlots BlockedSlot[]
 
   @@index([venueId])
   @@index([sportType])
 }
 
-model Booking {
-  id         String        @id @default(cuid())
-  date       DateTime      @db.Date
-  startTime  DateTime      @db.Time()
-  endTime    DateTime      @db.Time()
-  status     BookingStatus @default(PENDING)
-  totalPrice Decimal       @db.Decimal(10, 2)
-  notes      String?
-  userId     String
-  courtId    String
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+model PriceRule {
+  id           String    @id @default(cuid())
+  courtId      String
+  dayType      DayType
+  startHour    Int       // 0-23 (UTC+7 hour)
+  endHour      Int       // 0-23 (UTC+7 hour)
+  pricePerHour Decimal   @db.Decimal(10, 2)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  court      Court         @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  court        Court     @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  @@index([courtId])
+}
+
+model BlockedSlot {
+  id        String   @id @default(cuid())
+  courtId   String
+  date      DateTime @db.Date
+  startTime DateTime @db.Time()
+  endTime   DateTime @db.Time()
+  reason    String?
+  createdAt DateTime @default(now())
+
+  court     Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+
+  @@index([courtId])
+  @@index([date])
+}
+
+model Booking {
+  id              String        @id @default(cuid())
+  date            DateTime      @db.Date
+  startTime       DateTime      @db.Time()
+  endTime         DateTime      @db.Time()
+  status          BookingStatus @default(PENDING)
+  paymentStatus   PaymentStatus @default(UNPAID)
+  totalPrice      Decimal       @db.Decimal(10, 2)
+  notes           String?
+  holdExpiresAt   DateTime?
+  cancelledAt     DateTime?
+  cancelReason    String?
+  userId          String
+  courtId         String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  court           Court         @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  payment         Payment?
+  review          Review?
 
   @@index([userId])
   @@index([courtId])
   @@index([date])
-  @@unique([courtId, date, startTime])
+  @@index([status])
+  @@index([holdExpiresAt])
+}
+
+model Payment {
+  id                String    @id @default(cuid())
+  bookingId         String    @unique
+  orderId           String?   @unique
+  snapToken         String?
+  redirectUrl       String?
+  paymentType       String?
+  transactionStatus String?
+  fraudStatus       String?
+  grossAmount       Decimal?  @db.Decimal(10, 2)
+  transactionId     String?
+  rawNotification   Json?
+  paidAt            DateTime?
+  method            String?
+  proofUrl          String?
+  amount            Decimal   @db.Decimal(10, 2)
+  verifiedBy        String?
+  verifiedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  booking           Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([transactionStatus])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  bookingId String   @unique
+  userId    String
+  venueId   String
+  rating    Int      // 1-5
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  venue     Venue    @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@index([venueId])
+  @@index([userId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
 }
